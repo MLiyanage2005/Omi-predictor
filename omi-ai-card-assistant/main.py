@@ -4,7 +4,7 @@ import os
 import numpy as np
 import config
 from vision.card_detector import detect_card
-from vision.perspective import flatten_card, crop_corner
+from vision.perspective import flatten_card, crop_corner, get_player_zone
 from vision.matcher import match_card
 from game.state import GameState, Card
 from game.strategy import choose_card
@@ -25,6 +25,9 @@ def main():
         sys.exit(1)
 
     print("Camera successfully opened. Press ESC to exit.")
+
+    stable_card_counter = 0
+    last_seen_card = None
 
     while True:
         # Capture frame-by-frame
@@ -53,9 +56,14 @@ def main():
             # Crop the corner
             corner_crop = crop_corner(warped_card)
             
+            # Get player zone
+            frame_height, frame_width = frame.shape[:2]
+            player_id = get_player_zone(contour, frame_width, frame_height)
+            
             # Predict the card rank and suit
             rank, suit = match_card(corner_crop)
-            card_name = f"{rank} of {suit}"
+            player_names = {0: "Me", 1: "Left Opponent", 2: "Teammate", 3: "Right Opponent"}
+            card_name = f"{rank} of {suit} - {player_names.get(player_id, 'Unknown')}"
             current_card = Card(rank, suit) if rank != "Unknown" and suit != "Unknown" else None
             
             # Print to console so the user can see log output
@@ -87,7 +95,31 @@ def main():
                 # Save into a variable so the 's' and 'p' key logic below can access it
                 primary_corner_crop = corner_crop
                 primary_card = current_card
+                primary_player_id = player_id
                 first_card = False
+
+        # Auto-play stable cards
+        if 'primary_card' in locals() and primary_card:
+            if primary_card == last_seen_card and primary_card not in game.played_cards:
+                stable_card_counter += 1
+                if stable_card_counter > 30: # About 1 second at 30fps
+                    game.current_trick.append({"player": primary_player_id, "card": primary_card})
+                    game.played_cards.append(primary_card)
+                    
+                    if not game.lead_suit:
+                        game.lead_suit = primary_card.suit
+                        
+                    if primary_card in game.my_hand:
+                        game.my_hand.remove(primary_card)
+                        
+                    print(f"Auto-Played Card: {primary_card} by {player_names.get(primary_player_id, 'Unknown')}")
+                    stable_card_counter = 0 # reset
+            elif primary_card != last_seen_card:
+                stable_card_counter = 0
+                last_seen_card = primary_card
+        else:
+            stable_card_counter = 0
+            last_seen_card = None
 
         # Display the main camera frame
         cv2.imshow('Omi AI Card Assistant - Live Feed', frame)
@@ -113,12 +145,8 @@ def main():
                     game.my_hand.append(primary_card)
                     print(f"Added to Hand: {primary_card}")
         elif key == ord('p'): # 'p' key to play a card on the table
-            if 'primary_card' in locals() and primary_card:
-                # Add to current trick
-                # For simplicity, we assume we are playing it
-                # In a real scenario, you'd need to identify which player played it
-                player_index = 0 # Me
-                game.current_trick.append({"player": player_index, "card": primary_card})
+            if 'primary_card' in locals() and primary_card and primary_card not in game.played_cards:
+                game.current_trick.append({"player": primary_player_id, "card": primary_card})
                 game.played_cards.append(primary_card)
                 
                 if not game.lead_suit:
@@ -127,7 +155,7 @@ def main():
                 if primary_card in game.my_hand:
                     game.my_hand.remove(primary_card)
                     
-                print(f"Played Card: {primary_card}")
+                print(f"Manually Played Card: {primary_card} by Player {primary_player_id}")
         elif key == ord('r'): # 'r' key to reset trick or game
             game.reset()
             print("Game Reset")

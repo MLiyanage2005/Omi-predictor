@@ -60,3 +60,28 @@ def crop_corner(warped_img):
     corner_zoomed = cv2.resize(corner, (0, 0), fx=3, fy=3)
     
     return corner_zoomed
+
+def get_player_zone(contour, frame_width, frame_height):
+    """
+    Determines which player played the card based on its position in the frame.
+    Divides the screen into 4 triangular zones via diagonals.
+    Returns: 0 (Me/Bottom), 1 (Left Opponent), 2 (Teammate/Top), 3 (Right Opponent)
+    """
+    # Calculate the center of the contour
+    pts = contour.reshape(4, 2)
+    cx = int(np.mean(pts[:, 0]))
+    cy = int(np.mean(pts[:, 1]))
+    
+    # Normalize coordinates to center of screen (0,0)
+    x = cx - frame_width / 2
+    y = frame_height / 2 - cy # Invert Y so positive is up
+    
+    # Check against diagonals (y = x and y = -x) to define 4 triangles
+    if y > x and y > -x:
+        return 2 # Top (Teammate)
+    elif y < x and y > -x:
+        return 3 # Right (Opponent)
+    elif y < x and y < -x:
+        return 0 # Bottom (Me)
+    else:
+        return 1 # Left (Opponent)
