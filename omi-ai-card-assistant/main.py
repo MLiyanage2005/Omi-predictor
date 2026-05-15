@@ -8,6 +8,7 @@ from vision.perspective import flatten_card, crop_corner, get_player_zone
 from vision.matcher import match_card
 from game.state import GameState, Card
 from game.strategy import choose_card
+from game.nn_strategy import nn_predict_card
 
 def main():
     # Initialize Game State
@@ -69,10 +70,13 @@ def main():
             # Print to console so the user can see log output
             print(f"Identified Card: {card_name}")
             
-            # Get AI suggestion
+            # Get AI suggestion (Neural Network first, heuristic fallback)
             best_move = None
             if current_card and current_card in game.my_hand:
-                best_move = choose_card(game.my_hand, game.current_trick, game.trump, game.lead_suit, game.teammate_index)
+                best_move = nn_predict_card(game, player_id=0)
+                if best_move is None:
+                    # Fallback to rule-based heuristic if NN fails
+                    best_move = choose_card(game.my_hand, game.current_trick, game.trump, game.lead_suit, game.teammate_index)
             
             # Find the top-left point of the contour to draw text near the specific card
             pts = contour.reshape(4, 2)
